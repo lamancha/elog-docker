@@ -1,32 +1,50 @@
-FROM debian:stable
+FROM ubuntu:24.04 AS builder
 
-MAINTAINER "d08r6u33ru1s@blurme.net"
+ENV DEBIAN_FRONTEND=noninteractive
 
-ENV DEBIAN_FRONTEND noninteractive
+RUN apt update
 
-# imagemagick and elog
-RUN apt-get update \
-    && apt-get --yes install \
+# build
+RUN apt update \
+    && apt install -y \
         imagemagick \
         ckeditor \
-        elog \
+        build-essential \
+        cmake \
+        curl \
+        libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get clean
+WORKDIR /tmp
+RUN curl -LO https://elog.psi.ch/elog/download/tar/elog-3.1.5-1.tar.gz \
+    && tar xvzf elog-3.1.5-1.tar.gz 
+
+WORKDIR /tmp/elog-3.1.5-1
+RUN make
+
+#final image
+FROM ubuntu:24.04
+
+RUN apt update \
+    && apt install -y \
+        imagemagick \
+        ckeditor \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /app \
+    && mkdir -p /data \
+    && mkdir -p /config
+
+COPY --from=builder /tmp/elog-3.1.5-1/* /app/
 
 # elog config
-RUN mkdir /etc/elog
-COPY ./elog.conf /etc/elog/elog.conf
-RUN chown elog:elog /etc/elog/elog.conf
-
-# CSS banner themes
-RUN mkdir /usr/share/elog/themes/default/banner
-COPY ./elog-banner-css/css/ /usr/share/elog/themes/default/banner
-
-# elog logbooks
-RUN chown -R elog:elog /var/lib/elog
+COPY --from=builder /tmp/elog-3.1.5-1/elogd.cfg.example /config/elogd.cfg
+RUN useradd -U -G www-data -r elog \
+    && chown -R elog:elog /app \
+    && chown -R elog:elog /data \
+    && chown -R elog:elog /config
 
 EXPOSE 8080
 
-#USER 751
-CMD ["elogd", "-p", "8080", "-c", "/etc/elog/elog.conf"]
+##USER 751
+#CMD ["elogd", "-p", "8080", "-c", "/etc/elog/elog.conf"]
